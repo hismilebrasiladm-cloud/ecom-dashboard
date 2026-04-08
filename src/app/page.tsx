@@ -6,8 +6,8 @@ import KPICard from "@/components/KPICard";
 import ProgressBar from "@/components/ProgressBar";
 import MonthSelector from "@/components/MonthSelector";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  LineChart, Line
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Line
 } from "recharts";
 
 interface GeralRow {
@@ -35,10 +35,99 @@ interface GeralRow {
   qtd_inside: number;
 }
 
+interface IndRow {
+  vendedor: string;
+  equipe: string;
+  valor_coletado: number;
+  vendas: number;
+  calls_agendadas: number;
+  pct_meta: number;
+  meta_individual: number;
+  status_meta: string;
+}
+
+function getBusinessDaysRemaining(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let d = now.getDate() + 1; d <= lastDay; d++) {
+    const day = new Date(year, month, d).getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
+function getBusinessDaysTotal(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    const day = new Date(year, month, d).getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
+const medalColors = ["#F5A623", "#C0C0C0", "#CD7F32"];
+
+function Top3Card({ title, accent, data, metricLabel, metricKey, formatFn }: {
+  title: string;
+  accent: string;
+  data: IndRow[];
+  metricLabel: string;
+  metricKey: "valor_coletado" | "calls_agendadas";
+  formatFn: (v: number) => string;
+}) {
+  return (
+    <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded p-4 relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: accent }} />
+      <div className="text-[8px] font-bold tracking-[.22em] uppercase mb-3" style={{ color: accent + "99" }}>
+        {title}
+      </div>
+      {data.length === 0 && <div className="text-[11px] text-[#333]">Sem dados</div>}
+      {data.slice(0, 3).map((r, i) => (
+        <div key={r.vendedor} className="flex items-center justify-between py-2 border-b border-white/[.03] last:border-0">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black"
+              style={{ background: medalColors[i] + "22", color: medalColors[i] }}
+            >
+              {i + 1}
+            </div>
+            <div>
+              <div className="text-[12px] font-semibold text-[#F0F0F0]">{r.vendedor}</div>
+              {r.meta_individual > 0 && (
+                <div className="text-[9px] text-[#555]">
+                  {formatPct(r.pct_meta)} da meta
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[14px] font-black" style={{ color: accent }}>
+              {formatFn(r[metricKey])}
+            </div>
+            <div className="text-[9px] text-[#555]">
+              {metricKey === "valor_coletado" ? `${r.vendas} vendas` : `${r.vendas} vendas geradas`}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Overview() {
   const [data, setData] = useState<GeralRow[]>([]);
   const [selected, setSelected] = useState("");
   const [acum, setAcum] = useState({ total: 0, closing: 0, inside: 0, pct: 0 });
+  const [topClosers, setTopClosers] = useState<IndRow[]>([]);
+  const [topInside, setTopInside] = useState<IndRow[]>([]);
+  const [topSDRs, setTopSDRs] = useState<IndRow[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -78,28 +167,68 @@ export default function Overview() {
 
         const withData = parsed.filter((r) => r.faturamento_total > 0);
         if (withData.length > 0) {
-          setSelected(withData[withData.length - 1].mes);
+          const latestMes = withData[withData.length - 1].mes;
+          setSelected(latestMes);
+          loadTop3(latestMes);
         }
 
-        const total2026 = parsed
-          .filter((r) => r.mes >= "2026-01-01")
-          .reduce((s, r) => s + r.faturamento_total, 0);
-        const clo2026 = parsed
-          .filter((r) => r.mes >= "2026-01-01")
-          .reduce((s, r) => s + r.faturamento_closing, 0);
-        const ins2026 = parsed
-          .filter((r) => r.mes >= "2026-01-01")
-          .reduce((s, r) => s + r.faturamento_inside, 0);
-        setAcum({
-          total: total2026,
-          closing: clo2026,
-          inside: ins2026,
-          pct: (total2026 / 20_000_000) * 100,
-        });
+        const total2026 = parsed.filter((r) => r.mes >= "2026-01-01").reduce((s, r) => s + r.faturamento_total, 0);
+        const clo2026 = parsed.filter((r) => r.mes >= "2026-01-01").reduce((s, r) => s + r.faturamento_closing, 0);
+        const ins2026 = parsed.filter((r) => r.mes >= "2026-01-01").reduce((s, r) => s + r.faturamento_inside, 0);
+        setAcum({ total: total2026, closing: clo2026, inside: ins2026, pct: (total2026 / 20_000_000) * 100 });
       }
     }
+
+    async function loadTop3(mes: string) {
+      const { data: ind } = await supabase
+        .from("view_performance_individual")
+        .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
+        .eq("mes", mes);
+
+      if (ind) {
+        const parsed = ind.map((r: Record<string, unknown>) => ({
+          vendedor: String(r.vendedor),
+          equipe: String(r.equipe),
+          valor_coletado: Number(r.valor_coletado) || 0,
+          vendas: Number(r.vendas) || 0,
+          calls_agendadas: Number(r.calls_agendadas) || 0,
+          pct_meta: Number(r.pct_meta) || 0,
+          meta_individual: Number(r.meta_individual) || 0,
+          status_meta: String(r.status_meta),
+        }));
+        setTopClosers(parsed.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
+        setTopInside(parsed.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
+        setTopSDRs(parsed.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
+      }
+    }
+
     load();
   }, []);
+
+  function handleMonthChange(mes: string) {
+    setSelected(mes);
+    supabase
+      .from("view_performance_individual")
+      .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
+      .eq("mes", mes)
+      .then(({ data: ind }) => {
+        if (ind) {
+          const parsed = ind.map((r: Record<string, unknown>) => ({
+            vendedor: String(r.vendedor),
+            equipe: String(r.equipe),
+            valor_coletado: Number(r.valor_coletado) || 0,
+            vendas: Number(r.vendas) || 0,
+            calls_agendadas: Number(r.calls_agendadas) || 0,
+            pct_meta: Number(r.pct_meta) || 0,
+            meta_individual: Number(r.meta_individual) || 0,
+            status_meta: String(r.status_meta),
+          }));
+          setTopClosers(parsed.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
+          setTopInside(parsed.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
+          setTopSDRs(parsed.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
+        }
+      });
+  }
 
   const cur = data.find((r) => r.mes === selected);
   const mesesComDados = data.filter((r) => r.faturamento_total > 0).map((r) => r.mes);
@@ -114,6 +243,19 @@ export default function Overview() {
       Meta: Math.round(r.meta_total / 1000),
     }));
 
+  // Daily targets
+  const diasUteisRestantes = getBusinessDaysRemaining();
+  const diasUteisTotal = getBusinessDaysTotal();
+  const faltaClosing = cur ? Math.max(0, cur.meta_closing - cur.faturamento_closing) : 0;
+  const faltaInside = cur ? Math.max(0, cur.meta_inside - cur.faturamento_inside) : 0;
+  const faltaTotal = faltaClosing + faltaInside;
+  const metaSDRTotal = 880;
+  const sdrAgendados = topSDRs.reduce((s, r) => s + r.calls_agendadas, 0);
+  const faltaSDR = Math.max(0, metaSDRTotal - sdrAgendados);
+  const diarioClosing = diasUteisRestantes > 0 ? faltaClosing / diasUteisRestantes : 0;
+  const diarioInside = diasUteisRestantes > 0 ? faltaInside / diasUteisRestantes : 0;
+  const diarioSDR = diasUteisRestantes > 0 ? Math.ceil(faltaSDR / diasUteisRestantes) : 0;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -123,7 +265,7 @@ export default function Overview() {
           </div>
           <h1 className="text-xl font-black tracking-tight">Dashboard Comercial</h1>
         </div>
-        <MonthSelector meses={mesesComDados} selected={selected} onChange={setSelected} />
+        <MonthSelector meses={mesesComDados} selected={selected} onChange={handleMonthChange} />
       </div>
 
       {/* Meta Anual */}
@@ -140,22 +282,13 @@ export default function Overview() {
         </div>
         <ProgressBar value={acum.total} max={20_000_000} />
         <div className="flex gap-6 mt-3">
-          <div className="text-[10px]">
-            <span className="text-[#555]">Closing: </span>
-            <span className="text-[#F5A623] font-bold">{formatBRL(acum.closing)}</span>
-          </div>
-          <div className="text-[10px]">
-            <span className="text-[#555]">Inside: </span>
-            <span className="text-[#3DBA7A] font-bold">{formatBRL(acum.inside)}</span>
-          </div>
-          <div className="text-[10px]">
-            <span className="text-[#555]">Restante: </span>
-            <span className="text-[#2DBFBF] font-bold">{formatBRL(20_000_000 - acum.total)}</span>
-          </div>
+          <div className="text-[10px]"><span className="text-[#555]">Closing: </span><span className="text-[#F5A623] font-bold">{formatBRL(acum.closing)}</span></div>
+          <div className="text-[10px]"><span className="text-[#555]">Inside: </span><span className="text-[#3DBA7A] font-bold">{formatBRL(acum.inside)}</span></div>
+          <div className="text-[10px]"><span className="text-[#555]">Restante: </span><span className="text-[#2DBFBF] font-bold">{formatBRL(20_000_000 - acum.total)}</span></div>
         </div>
       </div>
 
-      {/* KPIs do mês selecionado */}
+      {/* KPIs do mês */}
       {cur && (
         <>
           <div className="text-[8px] font-bold tracking-[.25em] uppercase text-[#555] mb-3 pb-2 border-b border-[#1c1c1c]">
@@ -163,14 +296,80 @@ export default function Overview() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
             <KPICard label="Faturamento" value={formatBRL(cur.faturamento_total)} accent="gold" sub={`Meta: ${formatBRL(cur.meta_total)}`} />
-            <KPICard label="Closing" value={formatBRL(cur.faturamento_closing)} accent="blue" sub={`${formatPct(cur.pct_meta_total)} da meta`} />
-            <KPICard label="Inside" value={formatBRL(cur.faturamento_inside)} accent="green" sub={`Planos ${formatBRL(cur.inside_planos)} · Assiny ${formatBRL(cur.inside_assiny)}`} />
+            <KPICard label="Closing" value={formatBRL(cur.faturamento_closing)} accent="blue" sub={`Meta: ${formatBRL(cur.meta_closing)}`} />
+            <KPICard label="Inside" value={formatBRL(cur.faturamento_inside)} accent="green" sub={`Meta: ${formatBRL(cur.meta_inside)}`} />
             <KPICard label="Vendas" value={String(cur.vendas_totais)} accent="white" />
             <KPICard label="TMF Closing" value={formatBRLFull(cur.closing_tmf)} accent="gold" />
-            <KPICard label="R$/Closer" value={formatBRL(cur.media_por_closer)} accent="teal" sub={`${cur.qtd_closers} closers`} />
+            <KPICard label="% Meta" value={formatPct(cur.pct_meta_total)} accent={cur.pct_meta_total >= 80 ? "green" : cur.pct_meta_total >= 50 ? "gold" : "red"} />
           </div>
         </>
       )}
+
+      {/* Meta Diária Necessária */}
+      {cur && diasUteisRestantes > 0 && (
+        <>
+          <div className="text-[8px] font-bold tracking-[.25em] uppercase text-[#555] mb-3 pb-2 border-b border-[#1c1c1c]">
+            Meta diaria necessaria — {diasUteisRestantes} dias uteis restantes (de {diasUteisTotal} total)
+          </div>
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
+              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">Closing — precisa/dia</div>
+              <div className="text-3xl font-black text-[#E05050]">{formatBRL(diarioClosing)}</div>
+              <div className="text-[10px] text-[#555] mt-1">
+                Falta {formatBRL(faltaClosing)} de {formatBRL(cur.meta_closing)}
+              </div>
+              <ProgressBar value={cur.faturamento_closing} max={cur.meta_closing} color="#F5A623" />
+            </div>
+            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
+              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">Inside — precisa/dia</div>
+              <div className="text-3xl font-black text-[#E05050]">{formatBRL(diarioInside)}</div>
+              <div className="text-[10px] text-[#555] mt-1">
+                Falta {formatBRL(faltaInside)} de {formatBRL(cur.meta_inside)}
+              </div>
+              <ProgressBar value={cur.faturamento_inside} max={cur.meta_inside} color="#3DBA7A" />
+            </div>
+            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
+              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">SDR — agend./dia</div>
+              <div className="text-3xl font-black text-[#E05050]">{diarioSDR}</div>
+              <div className="text-[10px] text-[#555] mt-1">
+                Falta {faltaSDR} de {metaSDRTotal} agendamentos
+              </div>
+              <ProgressBar value={sdrAgendados} max={metaSDRTotal} color="#2DBFBF" />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* TOP 3 por área */}
+      <div className="text-[8px] font-bold tracking-[.25em] uppercase text-[#555] mb-3 pb-2 border-b border-[#1c1c1c]">
+        Top 3 — {getMesLabel(selected)}
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <Top3Card
+          title="Closers"
+          accent="#F5A623"
+          data={topClosers}
+          metricLabel="Faturamento"
+          metricKey="valor_coletado"
+          formatFn={formatBRL}
+        />
+        <Top3Card
+          title="Inside Sales"
+          accent="#3DBA7A"
+          data={topInside}
+          metricLabel="Faturamento"
+          metricKey="valor_coletado"
+          formatFn={formatBRL}
+        />
+        <Top3Card
+          title="SDRs"
+          accent="#2DBFBF"
+          data={topSDRs}
+          metricLabel="Agendamentos"
+          metricKey="calls_agendadas"
+          formatFn={(v) => `${v} calls`}
+        />
+      </div>
 
       {/* Chart */}
       <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded p-4 mb-6">
