@@ -1,0 +1,80 @@
+"use client";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { formatBRL, getMesLabel } from "@/lib/utils";
+import KPICard from "@/components/KPICard";
+import MonthSelector from "@/components/MonthSelector";
+import RankingTable from "@/components/RankingTable";
+
+export default function ClosersPage() {
+  const [data, setData] = useState<Record<string, unknown>[]>([]);
+  const [meses, setMeses] = useState<string[]>([]);
+  const [selected, setSelected] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      const { data: rows } = await supabase
+        .from("view_performance_individual")
+        .select("*")
+        .eq("equipe", "closer")
+        .order("mes", { ascending: true });
+
+      if (rows) {
+        setData(rows);
+        const uniqueMeses = [...new Set(rows.map((r: Record<string, unknown>) => r.mes as string))];
+        setMeses(uniqueMeses);
+        if (uniqueMeses.length > 0) setSelected(uniqueMeses[uniqueMeses.length - 1]);
+      }
+    }
+    load();
+  }, []);
+
+  const filtered = data
+    .filter((r) => r.mes === selected)
+    .map((r) => ({
+      vendedor: String(r.vendedor),
+      valor_coletado: Number(r.valor_coletado) || 0,
+      vendas: Number(r.vendas) || 0,
+      tmf: Number(r.tmf) || 0,
+      conv_pct: Number(r.conv_pct) || 0,
+      show_pct: Number(r.show_pct) || 0,
+      tmf_reuniao: Number(r.tmf_reuniao) || 0,
+      pct_meta: Number(r.pct_meta) || 0,
+      meta_individual: Number(r.meta_individual) || 0,
+      status_meta: String(r.status_meta),
+      calls_agendadas: Number(r.calls_agendadas) || 0,
+      calls_realizadas: Number(r.calls_realizadas) || 0,
+    }))
+    .sort((a, b) => b.valor_coletado - a.valor_coletado);
+
+  const totalFat = filtered.reduce((s, r) => s + r.valor_coletado, 0);
+  const totalVendas = filtered.reduce((s, r) => s + r.vendas, 0);
+  const totalCalls = filtered.reduce((s, r) => s + r.calls_realizadas, 0);
+  const avgConv = totalCalls > 0 ? (totalVendas / totalCalls) * 100 : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="text-[9px] font-bold tracking-[.35em] uppercase text-[#F5A623]/50 mb-1">closing</div>
+          <h1 className="text-xl font-black tracking-tight">Closers</h1>
+        </div>
+        <MonthSelector meses={meses} selected={selected} onChange={setSelected} />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <KPICard label="Faturamento" value={formatBRL(totalFat)} accent="gold" />
+        <KPICard label="Vendas" value={String(totalVendas)} accent="white" />
+        <KPICard label="Calls Realizadas" value={String(totalCalls)} accent="teal" />
+        <KPICard label="Conversao" value={`${avgConv.toFixed(1)}%`} accent={avgConv >= 30 ? "green" : "red"} />
+      </div>
+
+      <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded p-4">
+        <div className="text-[8px] font-bold tracking-[.22em] uppercase text-[#555] mb-3">
+          Ranking {getMesLabel(selected)}
+        </div>
+        <RankingTable data={filtered} equipe="closer" />
+      </div>
+    </div>
+  );
+}
