@@ -72,13 +72,24 @@ function getBusinessDaysTotal(): number {
   return count;
 }
 
+function getBusinessDaysElapsed(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  let count = 0;
+  for (let d = 1; d <= now.getDate(); d++) {
+    const day = new Date(year, month, d).getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
 const medalColors = ["#F5A623", "#C0C0C0", "#CD7F32"];
 
-function Top3Card({ title, accent, data, metricLabel, metricKey, formatFn }: {
+function Top3Card({ title, accent, data, metricKey, formatFn }: {
   title: string;
   accent: string;
   data: IndRow[];
-  metricLabel: string;
   metricKey: "valor_coletado" | "calls_agendadas";
   formatFn: (v: number) => string;
 }) {
@@ -92,18 +103,14 @@ function Top3Card({ title, accent, data, metricLabel, metricKey, formatFn }: {
       {data.slice(0, 3).map((r, i) => (
         <div key={r.vendedor} className="flex items-center justify-between py-2 border-b border-white/[.03] last:border-0">
           <div className="flex items-center gap-3">
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black"
-              style={{ background: medalColors[i] + "22", color: medalColors[i] }}
-            >
+            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black"
+              style={{ background: medalColors[i] + "22", color: medalColors[i] }}>
               {i + 1}
             </div>
             <div>
               <div className="text-[12px] font-semibold text-[#F0F0F0]">{r.vendedor}</div>
               {r.meta_individual > 0 && (
-                <div className="text-[9px] text-[#555]">
-                  {formatPct(r.pct_meta)} da meta
-                </div>
+                <div className="text-[9px] text-[#555]">{formatPct(r.pct_meta)} da meta</div>
               )}
             </div>
           </div>
@@ -184,26 +191,27 @@ export default function Overview() {
         .from("view_performance_individual")
         .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
         .eq("mes", mes);
-
-      if (ind) {
-        const parsed = ind.map((r: Record<string, unknown>) => ({
-          vendedor: String(r.vendedor),
-          equipe: String(r.equipe),
-          valor_coletado: Number(r.valor_coletado) || 0,
-          vendas: Number(r.vendas) || 0,
-          calls_agendadas: Number(r.calls_agendadas) || 0,
-          pct_meta: Number(r.pct_meta) || 0,
-          meta_individual: Number(r.meta_individual) || 0,
-          status_meta: String(r.status_meta),
-        }));
-        setTopClosers(parsed.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
-        setTopInside(parsed.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
-        setTopSDRs(parsed.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
-      }
+      if (ind) parseIndividuals(ind);
     }
 
     load();
   }, []);
+
+  function parseIndividuals(ind: Record<string, unknown>[]) {
+    const parsed = ind.map((r) => ({
+      vendedor: String(r.vendedor),
+      equipe: String(r.equipe),
+      valor_coletado: Number(r.valor_coletado) || 0,
+      vendas: Number(r.vendas) || 0,
+      calls_agendadas: Number(r.calls_agendadas) || 0,
+      pct_meta: Number(r.pct_meta) || 0,
+      meta_individual: Number(r.meta_individual) || 0,
+      status_meta: String(r.status_meta),
+    }));
+    setTopClosers(parsed.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
+    setTopInside(parsed.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
+    setTopSDRs(parsed.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
+  }
 
   function handleMonthChange(mes: string) {
     setSelected(mes);
@@ -211,23 +219,7 @@ export default function Overview() {
       .from("view_performance_individual")
       .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
       .eq("mes", mes)
-      .then(({ data: ind }) => {
-        if (ind) {
-          const parsed = ind.map((r: Record<string, unknown>) => ({
-            vendedor: String(r.vendedor),
-            equipe: String(r.equipe),
-            valor_coletado: Number(r.valor_coletado) || 0,
-            vendas: Number(r.vendas) || 0,
-            calls_agendadas: Number(r.calls_agendadas) || 0,
-            pct_meta: Number(r.pct_meta) || 0,
-            meta_individual: Number(r.meta_individual) || 0,
-            status_meta: String(r.status_meta),
-          }));
-          setTopClosers(parsed.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
-          setTopInside(parsed.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
-          setTopSDRs(parsed.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
-        }
-      });
+      .then(({ data: ind }) => { if (ind) parseIndividuals(ind); });
   }
 
   const cur = data.find((r) => r.mes === selected);
@@ -246,6 +238,7 @@ export default function Overview() {
   // Daily targets
   const diasUteisRestantes = getBusinessDaysRemaining();
   const diasUteisTotal = getBusinessDaysTotal();
+  const diasUteisPassados = getBusinessDaysElapsed();
   const faltaClosing = cur ? Math.max(0, cur.meta_closing - cur.faturamento_closing) : 0;
   const faltaInside = cur ? Math.max(0, cur.meta_inside - cur.faturamento_inside) : 0;
   const faltaTotal = faltaClosing + faltaInside;
@@ -254,7 +247,13 @@ export default function Overview() {
   const faltaSDR = Math.max(0, metaSDRTotal - sdrAgendados);
   const diarioClosing = diasUteisRestantes > 0 ? faltaClosing / diasUteisRestantes : 0;
   const diarioInside = diasUteisRestantes > 0 ? faltaInside / diasUteisRestantes : 0;
+  const diarioTotal = diarioClosing + diarioInside;
   const diarioSDR = diasUteisRestantes > 0 ? Math.ceil(faltaSDR / diasUteisRestantes) : 0;
+  const pctClosing = cur && cur.meta_closing > 0 ? (cur.faturamento_closing / cur.meta_closing) * 100 : 0;
+  const pctInside = cur && cur.meta_inside > 0 ? (cur.faturamento_inside / cur.meta_inside) * 100 : 0;
+  const pctTotal = cur && cur.meta_total > 0 ? (cur.faturamento_total / cur.meta_total) * 100 : 0;
+  const pctSDR = metaSDRTotal > 0 ? (sdrAgendados / metaSDRTotal) * 100 : 0;
+  const pctTempo = diasUteisTotal > 0 ? (diasUteisPassados / diasUteisTotal) * 100 : 0;
 
   return (
     <div>
@@ -267,6 +266,113 @@ export default function Overview() {
         </div>
         <MonthSelector meses={mesesComDados} selected={selected} onChange={handleMonthChange} />
       </div>
+
+      {/* BLOCO PRINCIPAL — O que falta por dia */}
+      {cur && diasUteisRestantes > 0 && (
+        <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded-lg p-6 mb-6">
+          {/* Header com total e tempo */}
+          <div className="flex items-start justify-between mb-5">
+            <div>
+              <div className="text-[9px] font-bold tracking-[.3em] uppercase text-[#E05050]/60 mb-1">
+                Precisa faturar por dia util
+              </div>
+              <div className="text-5xl font-black text-[#F0F0F0]">
+                {formatBRL(diarioTotal)}
+                <span className="text-lg text-[#555] font-bold ml-2">/dia</span>
+              </div>
+              <div className="text-[11px] text-[#555] mt-1">
+                Falta <span className="text-[#E05050] font-bold">{formatBRL(faltaTotal)}</span> em{" "}
+                <span className="text-[#F0F0F0] font-bold">{diasUteisRestantes} dias uteis</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[9px] font-bold tracking-[.2em] uppercase text-[#555] mb-1">
+                Tempo do mes
+              </div>
+              <div className="text-2xl font-black text-[#F0F0F0]">
+                {diasUteisPassados}<span className="text-[#555]">/{diasUteisTotal}</span>
+              </div>
+              <div className="text-[10px] text-[#555]">
+                {formatPct(pctTempo)} do mes
+              </div>
+              <div className="w-32 mt-1">
+                <ProgressBar value={diasUteisPassados} max={diasUteisTotal} color="#555" />
+              </div>
+            </div>
+          </div>
+
+          {/* 4 colunas: Closing, Inside, Total, SDR */}
+          <div className="grid grid-cols-4 gap-4">
+            {/* Closing */}
+            <div className="bg-[#141414] rounded p-4 border border-[#1c1c1c]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#F5A623]/60">Closing</div>
+                <div className="text-[10px] font-bold" style={{ color: pctClosing >= pctTempo ? "#3DBA7A" : "#E05050" }}>
+                  {formatPct(pctClosing)}
+                </div>
+              </div>
+              <div className="text-2xl font-black text-[#F5A623] mb-1">{formatBRL(diarioClosing)}<span className="text-[11px] text-[#555] font-bold">/dia</span></div>
+              <ProgressBar value={cur.faturamento_closing} max={cur.meta_closing} color="#F5A623" />
+              <div className="flex justify-between mt-2 text-[9px]">
+                <span className="text-[#555]">Feito: <span className="text-[#F5A623]">{formatBRL(cur.faturamento_closing)}</span></span>
+                <span className="text-[#555]">Meta: {formatBRL(cur.meta_closing)}</span>
+              </div>
+              <div className="text-[9px] text-[#E05050] mt-1">Falta: {formatBRL(faltaClosing)}</div>
+            </div>
+
+            {/* Inside */}
+            <div className="bg-[#141414] rounded p-4 border border-[#1c1c1c]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#3DBA7A]/60">Inside</div>
+                <div className="text-[10px] font-bold" style={{ color: pctInside >= pctTempo ? "#3DBA7A" : "#E05050" }}>
+                  {formatPct(pctInside)}
+                </div>
+              </div>
+              <div className="text-2xl font-black text-[#3DBA7A] mb-1">{formatBRL(diarioInside)}<span className="text-[11px] text-[#555] font-bold">/dia</span></div>
+              <ProgressBar value={cur.faturamento_inside} max={cur.meta_inside} color="#3DBA7A" />
+              <div className="flex justify-between mt-2 text-[9px]">
+                <span className="text-[#555]">Feito: <span className="text-[#3DBA7A]">{formatBRL(cur.faturamento_inside)}</span></span>
+                <span className="text-[#555]">Meta: {formatBRL(cur.meta_inside)}</span>
+              </div>
+              <div className="text-[9px] text-[#E05050] mt-1">Falta: {formatBRL(faltaInside)}</div>
+            </div>
+
+            {/* Total */}
+            <div className="bg-[#141414] rounded p-4 border border-[#F5A623]/20">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#F0F0F0]/40">Total</div>
+                <div className="text-[10px] font-bold" style={{ color: pctTotal >= pctTempo ? "#3DBA7A" : "#E05050" }}>
+                  {formatPct(pctTotal)}
+                </div>
+              </div>
+              <div className="text-2xl font-black text-[#F0F0F0] mb-1">{formatBRL(diarioTotal)}<span className="text-[11px] text-[#555] font-bold">/dia</span></div>
+              <ProgressBar value={cur.faturamento_total} max={cur.meta_total} color="#F5A623" />
+              <div className="flex justify-between mt-2 text-[9px]">
+                <span className="text-[#555]">Feito: <span className="text-[#F5A623]">{formatBRL(cur.faturamento_total)}</span></span>
+                <span className="text-[#555]">Meta: {formatBRL(cur.meta_total)}</span>
+              </div>
+              <div className="text-[9px] text-[#E05050] mt-1">Falta: {formatBRL(faltaTotal)}</div>
+            </div>
+
+            {/* SDR */}
+            <div className="bg-[#141414] rounded p-4 border border-[#1c1c1c]">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#2DBFBF]/60">SDR</div>
+                <div className="text-[10px] font-bold" style={{ color: pctSDR >= pctTempo ? "#3DBA7A" : "#E05050" }}>
+                  {formatPct(pctSDR)}
+                </div>
+              </div>
+              <div className="text-2xl font-black text-[#2DBFBF] mb-1">{diarioSDR}<span className="text-[11px] text-[#555] font-bold"> agend./dia</span></div>
+              <ProgressBar value={sdrAgendados} max={metaSDRTotal} color="#2DBFBF" />
+              <div className="flex justify-between mt-2 text-[9px]">
+                <span className="text-[#555]">Feito: <span className="text-[#2DBFBF]">{sdrAgendados}</span></span>
+                <span className="text-[#555]">Meta: {metaSDRTotal}</span>
+              </div>
+              <div className="text-[9px] text-[#E05050] mt-1">Falta: {faltaSDR} agend.</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meta Anual */}
       <div className="bg-[#F5A623]/[.04] border border-[#F5A623]/20 rounded p-5 mb-6">
@@ -290,54 +396,14 @@ export default function Overview() {
 
       {/* KPIs do mês */}
       {cur && (
-        <>
-          <div className="text-[8px] font-bold tracking-[.25em] uppercase text-[#555] mb-3 pb-2 border-b border-[#1c1c1c]">
-            {getMesLabel(selected)} — Resumo
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-            <KPICard label="Faturamento" value={formatBRL(cur.faturamento_total)} accent="gold" sub={`Meta: ${formatBRL(cur.meta_total)}`} />
-            <KPICard label="Closing" value={formatBRL(cur.faturamento_closing)} accent="blue" sub={`Meta: ${formatBRL(cur.meta_closing)}`} />
-            <KPICard label="Inside" value={formatBRL(cur.faturamento_inside)} accent="green" sub={`Meta: ${formatBRL(cur.meta_inside)}`} />
-            <KPICard label="Vendas" value={String(cur.vendas_totais)} accent="white" />
-            <KPICard label="TMF Closing" value={formatBRLFull(cur.closing_tmf)} accent="gold" />
-            <KPICard label="% Meta" value={formatPct(cur.pct_meta_total)} accent={cur.pct_meta_total >= 80 ? "green" : cur.pct_meta_total >= 50 ? "gold" : "red"} />
-          </div>
-        </>
-      )}
-
-      {/* Meta Diária Necessária */}
-      {cur && diasUteisRestantes > 0 && (
-        <>
-          <div className="text-[8px] font-bold tracking-[.25em] uppercase text-[#555] mb-3 pb-2 border-b border-[#1c1c1c]">
-            Meta diaria necessaria — {diasUteisRestantes} dias uteis restantes (de {diasUteisTotal} total)
-          </div>
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
-              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">Closing — precisa/dia</div>
-              <div className="text-3xl font-black text-[#E05050]">{formatBRL(diarioClosing)}</div>
-              <div className="text-[10px] text-[#555] mt-1">
-                Falta {formatBRL(faltaClosing)} de {formatBRL(cur.meta_closing)}
-              </div>
-              <ProgressBar value={cur.faturamento_closing} max={cur.meta_closing} color="#F5A623" />
-            </div>
-            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
-              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">Inside — precisa/dia</div>
-              <div className="text-3xl font-black text-[#E05050]">{formatBRL(diarioInside)}</div>
-              <div className="text-[10px] text-[#555] mt-1">
-                Falta {formatBRL(faltaInside)} de {formatBRL(cur.meta_inside)}
-              </div>
-              <ProgressBar value={cur.faturamento_inside} max={cur.meta_inside} color="#3DBA7A" />
-            </div>
-            <div className="bg-[#E05050]/[.06] border border-[#E05050]/20 rounded p-4">
-              <div className="text-[8px] font-bold tracking-[.2em] uppercase text-[#E05050]/60 mb-1">SDR — agend./dia</div>
-              <div className="text-3xl font-black text-[#E05050]">{diarioSDR}</div>
-              <div className="text-[10px] text-[#555] mt-1">
-                Falta {faltaSDR} de {metaSDRTotal} agendamentos
-              </div>
-              <ProgressBar value={sdrAgendados} max={metaSDRTotal} color="#2DBFBF" />
-            </div>
-          </div>
-        </>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
+          <KPICard label="Faturamento" value={formatBRL(cur.faturamento_total)} accent="gold" sub={`Meta: ${formatBRL(cur.meta_total)}`} />
+          <KPICard label="Closing" value={formatBRL(cur.faturamento_closing)} accent="blue" sub={`Meta: ${formatBRL(cur.meta_closing)}`} />
+          <KPICard label="Inside" value={formatBRL(cur.faturamento_inside)} accent="green" sub={`Meta: ${formatBRL(cur.meta_inside)}`} />
+          <KPICard label="Vendas" value={String(cur.vendas_totais)} accent="white" />
+          <KPICard label="TMF Closing" value={formatBRLFull(cur.closing_tmf)} accent="gold" />
+          <KPICard label="% Meta" value={formatPct(cur.pct_meta_total)} accent={cur.pct_meta_total >= 80 ? "green" : cur.pct_meta_total >= 50 ? "gold" : "red"} />
+        </div>
       )}
 
       {/* TOP 3 por área */}
@@ -345,30 +411,9 @@ export default function Overview() {
         Top 3 — {getMesLabel(selected)}
       </div>
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <Top3Card
-          title="Closers"
-          accent="#F5A623"
-          data={topClosers}
-          metricLabel="Faturamento"
-          metricKey="valor_coletado"
-          formatFn={formatBRL}
-        />
-        <Top3Card
-          title="Inside Sales"
-          accent="#3DBA7A"
-          data={topInside}
-          metricLabel="Faturamento"
-          metricKey="valor_coletado"
-          formatFn={formatBRL}
-        />
-        <Top3Card
-          title="SDRs"
-          accent="#2DBFBF"
-          data={topSDRs}
-          metricLabel="Agendamentos"
-          metricKey="calls_agendadas"
-          formatFn={(v) => `${v} calls`}
-        />
+        <Top3Card title="Closers" accent="#F5A623" data={topClosers} metricKey="valor_coletado" formatFn={formatBRL} />
+        <Top3Card title="Inside Sales" accent="#3DBA7A" data={topInside} metricKey="valor_coletado" formatFn={formatBRL} />
+        <Top3Card title="SDRs" accent="#2DBFBF" data={topSDRs} metricKey="calls_agendadas" formatFn={(v) => `${v} calls`} />
       </div>
 
       {/* Chart */}
