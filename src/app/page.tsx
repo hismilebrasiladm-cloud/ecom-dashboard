@@ -129,9 +129,9 @@ export default function Overview() {
       meta_individual: Number(r.meta_individual) || 0,
       pct_meta: Number(r.pct_meta) || 0,
     }));
-    setClosers(p.filter((r) => r.equipe === "closer").sort((a, b) => b.valor_coletado - a.valor_coletado));
-    setInside(p.filter((r) => r.equipe === "inside").sort((a, b) => b.valor_coletado - a.valor_coletado));
-    setSDRs(p.filter((r) => r.equipe === "sdr").sort((a, b) => b.calls_agendadas - a.calls_agendadas));
+    setClosers(p.filter((r: IndRow) => r.equipe === "closer").sort((a: IndRow, b: IndRow) => b.valor_coletado - a.valor_coletado));
+    setInside(p.filter((r: IndRow) => r.equipe === "inside").sort((a: IndRow, b: IndRow) => b.valor_coletado - a.valor_coletado));
+    setSDRs(p.filter((r: IndRow) => r.equipe === "sdr").sort((a: IndRow, b: IndRow) => b.calls_agendadas - a.calls_agendadas));
   }
 
   function handleMonth(mes: string) {
