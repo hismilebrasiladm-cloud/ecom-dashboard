@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { fetchGeral, fetchIndividual } from "@/lib/queries";
 import { formatBRL, formatBRLFull, formatPct, getMesLabel } from "@/lib/utils";
 import KPICard from "@/components/KPICard";
 import ProgressBar from "@/components/ProgressBar";
@@ -138,14 +139,9 @@ export default function Overview() {
 
   useEffect(() => {
     async function load() {
-      const { data: geral } = await supabase
-        .from("view_performance_geral")
-        .select("*")
-        .gte("mes", "2025-11-01")
-        .lte("mes", "2026-12-01")
-        .order("mes");
+      const geral = await fetchGeral();
 
-      if (geral) {
+      if (geral && geral.length > 0) {
         const parsed = geral.map((r: Record<string, unknown>) => ({
           ...r,
           faturamento_total: Number(r.faturamento_total) || 0,
@@ -187,10 +183,7 @@ export default function Overview() {
     }
 
     async function loadTop3(mes: string) {
-      const { data: ind } = await supabase
-        .from("view_performance_individual")
-        .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
-        .eq("mes", mes);
+      const ind = await fetchIndividual(mes);
       if (ind) parseIndividuals(ind);
     }
 
@@ -215,11 +208,7 @@ export default function Overview() {
 
   function handleMonthChange(mes: string) {
     setSelected(mes);
-    supabase
-      .from("view_performance_individual")
-      .select("vendedor,equipe,valor_coletado,vendas,calls_agendadas,pct_meta,meta_individual,status_meta")
-      .eq("mes", mes)
-      .then(({ data: ind }) => { if (ind) parseIndividuals(ind); });
+    fetchIndividual(mes).then((ind) => { if (ind) parseIndividuals(ind); });
   }
 
   const cur = data.find((r) => r.mes === selected);

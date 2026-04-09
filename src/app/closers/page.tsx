@@ -6,6 +6,23 @@ import KPICard from "@/components/KPICard";
 import MonthSelector from "@/components/MonthSelector";
 import RankingTable from "@/components/RankingTable";
 
+async function fetchAll(equipe: string) {
+  const { data, error } = await supabase
+    .from("view_performance_individual")
+    .select("*")
+    .eq("equipe", equipe)
+    .order("mes", { ascending: true });
+  if (!error && data && data.length > 0) return data;
+
+  // Fallback: tabela direta
+  const { data: fb } = await supabase
+    .from("performance_comercial")
+    .select("*")
+    .eq("equipe", equipe)
+    .order("mes", { ascending: true });
+  return fb || [];
+}
+
 export default function ClosersPage() {
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [meses, setMeses] = useState<string[]>([]);
@@ -13,12 +30,7 @@ export default function ClosersPage() {
 
   useEffect(() => {
     async function load() {
-      const { data: rows } = await supabase
-        .from("view_performance_individual")
-        .select("*")
-        .eq("equipe", "closer")
-        .order("mes", { ascending: true });
-
+      const rows = await fetchAll("closer");
       if (rows) {
         setData(rows);
         const uniqueMeses = [...new Set(rows.map((r: Record<string, unknown>) => r.mes as string))];
@@ -35,13 +47,13 @@ export default function ClosersPage() {
       vendedor: String(r.vendedor),
       valor_coletado: Number(r.valor_coletado) || 0,
       vendas: Number(r.vendas) || 0,
-      tmf: Number(r.tmf) || 0,
-      conv_pct: Number(r.conv_pct) || 0,
-      show_pct: Number(r.show_pct) || 0,
-      tmf_reuniao: Number(r.tmf_reuniao) || 0,
-      pct_meta: Number(r.pct_meta) || 0,
+      tmf: Number(r.tmf || (Number(r.vendas) > 0 ? Number(r.valor_coletado) / Number(r.vendas) : 0)),
+      conv_pct: Number(r.conv_pct || (Number(r.calls_realizadas) > 0 ? Number(r.vendas) / Number(r.calls_realizadas) * 100 : 0)),
+      show_pct: Number(r.show_pct || (Number(r.calls_agendadas) > 0 ? Number(r.calls_realizadas) / Number(r.calls_agendadas) * 100 : 0)),
+      tmf_reuniao: Number(r.tmf_reuniao || 0),
+      pct_meta: Number(r.pct_meta || (Number(r.meta_individual) > 0 ? Number(r.valor_coletado) / Number(r.meta_individual) * 100 : 0)),
       meta_individual: Number(r.meta_individual) || 0,
-      status_meta: String(r.status_meta),
+      status_meta: String(r.status_meta || "sem_meta"),
       calls_agendadas: Number(r.calls_agendadas) || 0,
       calls_realizadas: Number(r.calls_realizadas) || 0,
     }))
@@ -71,7 +83,7 @@ export default function ClosersPage() {
 
       <div className="bg-[#0f0f0f] border border-[#1c1c1c] rounded p-4">
         <div className="text-[8px] font-bold tracking-[.22em] uppercase text-[#555] mb-3">
-          Ranking {getMesLabel(selected)}
+          Ranking {selected ? getMesLabel(selected) : ""}
         </div>
         <RankingTable data={filtered} equipe="closer" />
       </div>
